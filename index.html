@@ -552,7 +552,8 @@ const DRIVE_SCOPES='https://www.googleapis.com/auth/drive.file';
 const DRIVE_FILE_NAME='crm_clientes_backup.json';
 
 let driveConfig=loadDriveConfig()||{connected:false,fileId:null,lastSync:null,autoSync:true};
-let gapiReady=false;let driveToken=null;let syncTimeout=null;
+let gapiReady=false;let driveToken=null;let tokenClient=null;
+let accessToken=null;let syncTimeout=null;
 
 function initGAPI(){
   if(typeof gapi==='undefined'){setSyncStatus('offline');return;}
@@ -586,19 +587,19 @@ function setSyncStatus(status){
   });
 }
 
-async function signInDrive(){
-  if(!gapiReady||!driveConfig.clientId){toast('Configurá primero el Client ID de Google');return;}
-  try{
-    setSyncStatus('syncing');
-    const auth=gapi.auth2.getAuthInstance();
-    await auth.signIn();
-    driveToken=auth.currentUser.get().getAuthResponse().access_token;
-    driveConfig.connected=true;saveDriveConfig();
-    setSyncStatus('synced');
-    toast('✓ Conectado a Google Drive');
-    await loadFromDrive();
-    closeOv('drive');
-  }catch(e){setSyncStatus('error');toast('Error al conectar con Drive');}
+function signInDrive(){
+
+  if(!tokenClient){
+    toast('Google no inicializado');
+    return;
+  }
+
+  setSyncStatus('syncing');
+
+  tokenClient.requestAccessToken({
+    prompt:'consent'
+  });
+
 }
 
 async function signOutDrive(){
@@ -720,12 +721,70 @@ function openDriveSetup(){
 
 function saveDriveClientId(){
   const cid=document.getElementById('drive-client-id').value.trim();
-  if(!cid){toast('Ingresá el Client ID');return;}
-  driveConfig.clientId=cid;saveDriveConfig();
-  gapi.client.init({clientId:cid,scope:DRIVE_SCOPES,discoveryDocs:['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']})
-    .then(()=>{gapiReady=true;signInDrive();}).catch(()=>{toast('Client ID inválido o sin permiso');});
-}
 
+  if(!cid){
+    toast('Ingresá el Client ID');
+    return;
+  }
+
+  driveConfig.clientId=cid;
+  saveDriveConfig();
+
+  gapi.load('client', async ()=>{
+
+    try{
+
+      await gapi.client.init({
+        discoveryDocs:[
+          'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'
+        ]
+      });
+
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: cid,
+        scope: DRIVE_SCOPES,
+        callback: async (response)=>{
+
+          if(response.error){
+            console.error(response);
+            toast('Error OAuth');
+            return;
+          }
+
+          accessToken=response.access_token;
+
+          gapi.client.setToken({
+            access_token: accessToken
+          });
+
+          driveToken=accessToken;
+
+          driveConfig.connected=true;
+          saveDriveConfig();
+
+          setSyncStatus('synced');
+
+          toast('✓ Conectado a Google Drive');
+
+          await loadFromDrive();
+
+          closeOv('drive');
+        }
+      });
+
+      gapiReady=true;
+
+      signInDrive();
+
+    }catch(err){
+
+      console.error(err);
+
+      toast('Error inicializando Google');
+
+    }
+  });
+}
 // Backup manual JSON
 function exportBackupJSON(){
   const payload=JSON.stringify({clients,stages,metas,version:7,savedAt:new Date().toISOString()},null,2);
