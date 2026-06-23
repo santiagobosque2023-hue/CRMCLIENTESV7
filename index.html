@@ -556,23 +556,44 @@ let gapiReady=false;let driveToken=null;let tokenClient=null;
 let accessToken=null;let syncTimeout=null;
 
 function initGAPI(){
-  if(typeof gapi==='undefined'){setSyncStatus('offline');return;}
-  gapi.load('client:auth2',()=>{
-    gapi.client.init({
-      clientId:driveConfig.clientId||'',
-      scope:DRIVE_SCOPES,
-      discoveryDocs:['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
-    }).then(()=>{
+
+  if(typeof gapi==='undefined'){
+    setSyncStatus('offline');
+    return;
+  }
+
+  gapi.load('client', async ()=>{
+
+    try{
+
+      await gapi.client.init({
+        discoveryDocs:[
+          'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'
+        ]
+      });
+
       gapiReady=true;
-      const auth=gapi.auth2.getAuthInstance();
-      if(auth&&auth.isSignedIn.get()){
-        driveToken=auth.currentUser.get().getAuthResponse().access_token;
-        driveConfig.connected=true;saveDriveConfig();
-        setSyncStatus('synced');
-        if(driveConfig.autoSync)loadFromDrive();
-      } else {setSyncStatus('offline');}
-    }).catch(()=>{setSyncStatus('offline');});
+
+      if(driveConfig.connected){
+
+        setSyncStatus('offline');
+
+      }else{
+
+        setSyncStatus('offline');
+
+      }
+
+    }catch(err){
+
+      console.error(err);
+
+      setSyncStatus('offline');
+
+    }
+
   });
+
 }
 
 function setSyncStatus(status){
@@ -603,11 +624,38 @@ function signInDrive(){
 }
 
 async function signOutDrive(){
-  if(!gapiReady)return;
-  const auth=gapi.auth2.getAuthInstance();
-  await auth.signOut();
-  driveConfig.connected=false;driveConfig.fileId=null;driveToken=null;saveDriveConfig();
-  setSyncStatus('offline');toast('Desconectado de Google Drive');openDriveSetup();
+
+  try{
+
+    if(accessToken){
+
+      google.accounts.oauth2.revoke(
+        accessToken,
+        ()=>{}
+      );
+
+    }
+
+  }catch(err){
+
+    console.error(err);
+
+  }
+
+  accessToken=null;
+  driveToken=null;
+
+  driveConfig.connected=false;
+  driveConfig.fileId=null;
+
+  saveDriveConfig();
+
+  setSyncStatus('offline');
+
+  toast('Desconectado de Google Drive');
+
+  openDriveSetup();
+
 }
 
 async function saveData(){
