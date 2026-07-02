@@ -80,6 +80,31 @@ button{cursor:pointer;font-family:inherit;-webkit-appearance:none}
 .card{background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:11px;cursor:pointer;transition:border-color .15s,box-shadow .15s}
 .card:hover{border-color:var(--border2);box-shadow:0 2px 12px rgba(0,0,0,.07)}
 .card:active{transform:scale(.98)}
+  .card.selected{
+    border:2px solid var(--accent);
+    background:rgba(59,130,246,.08);
+    box-shadow:0 0 0 3px rgba(59,130,246,.15);
+}
+
+.card.selected:hover{
+    border-color:var(--accent);
+}
+  .selection-bar{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px;
+
+    margin:12px 0;
+
+    padding:12px 14px;
+
+    background:var(--bg);
+
+    border:1px solid var(--border);
+
+    border-radius:12px;
+}
 .card-head{display:flex;gap:8px;align-items:flex-start;margin-bottom:8px}
 .av{border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0}
 .card-name{font-weight:600;font-size:13px;line-height:1.3}
@@ -286,7 +311,10 @@ textarea.fi{resize:vertical;min-height:58px}
       <div class="topbar-title" id="view-title">Todos los clientes</div>
       <div id="sync-status-top" class="sync-indicator offline" style="display:none"><i class="ti ti-cloud-off"></i></div>
       <div class="sw"><i class="ti ti-search"></i><input class="search" id="search-inp" placeholder="Buscar..." oninput="render()"/></div>
-      <button class="btn btn-primary btn-sm" onclick="doNewClient()"><i class="ti ti-plus"></i> Nuevo</button>
+      <button class="btn btn-primary btn-sm"onclick="doNewClient()"><i class="ti ti-plus"></i> Nuevo</button>
+      <button class="btn btn-sm" id="btn-selection" onclick="toggleSelectionMode()">
+    <i class="ti ti-checkbox"></i> Seleccionar
+</button>
     </div>
     <div class="frow" id="frow">
       <select class="fsel" id="f-st" onchange="render()"><option value="">Todos</option><option value="overdue">Vencidos</option><option value="today">Hoy</option><option value="week">Esta semana</option><option value="ok">Al día</option><option value="nodate">Sin fecha</option></select>
@@ -552,8 +580,16 @@ const DRIVE_SCOPES='https://www.googleapis.com/auth/drive.file';
 const DRIVE_FILE_NAME='crm_clientes_backup.json';
 
 let driveConfig=loadDriveConfig()||{connected:false,fileId:null,lastSync:null,autoSync:true};
-let gapiReady=false;let driveToken=null;let tokenClient=null;
-let accessToken=null;let syncTimeout=null;
+let gapiReady=false;
+let driveToken=null;
+  
+let tokenClient=null;
+let accessToken=null;
+  
+let selectedClients = new Set();
+let selectionMode = false;
+  
+let syncTimeout=null;
 
 function initGAPI(){
 
@@ -932,12 +968,65 @@ function getFilt(){
   else list.sort((a,b)=>{if(!a.next&&!b.next)return 0;if(!a.next)return 1;if(!b.next)return -1;return a.next.localeCompare(b.next);});
   return list;
 }
+function toggleSelectionMode(){
 
+    selectionMode = !selectionMode;
+
+    if(!selectionMode){
+        selectedClients.clear();
+    }
+
+    const btn = document.getElementById("btn-selection");
+
+    if(btn){
+
+        if(selectionMode){
+
+            btn.innerHTML='<i class="ti ti-x"></i> Cancelar';
+
+            btn.classList.add("btn-danger");
+
+        }else{
+
+            btn.innerHTML='<i class="ti ti-checkbox"></i> Seleccionar';
+
+            btn.classList.remove("btn-danger");
+
+        }
+
+    }
+
+    render();
+
+}
 function render(){
   const td=todayStr(),list=getFilt(),cont=document.getElementById('content');
   const ov=list.filter(c=>c.next&&c.next<td).length,tw=list.filter(c=>c.next===td).length;
   const w=new Date(today);w.setDate(w.getDate()+7);const ws=w.toISOString().split('T')[0];
   const wk=list.filter(c=>c.next&&c.next>td&&c.next<=ws).length;
+  const selectionBar =
+    selectionMode && selectedClients.size > 0
+    ? `
+    <div class="selection-bar">
+        <div>
+            <strong>${selectedClients.size}</strong> cliente${selectedClients.size>1?'s':''} seleccionado${selectedClients.size>1?'s':''}
+        </div>
+
+        <div style="display:flex;gap:8px">
+
+            <button class="btn btn-danger btn-sm" onclick="deleteSelectedClients();event.stopPropagation();">
+                <i class="ti ti-trash"></i>
+                Eliminar
+            </button>
+
+            <button class="btn btn-sm" onclick="toggleSelectionMode();event.stopPropagation();">
+                Cancelar
+            </button>
+
+        </div>
+    </div>
+    `
+    : '';
   const stats=`<div class="stats">
     <div class="stat" onclick="document.getElementById('f-st').value='';render()"><div class="stat-n">${list.length}</div><div class="stat-l">Total</div></div>
     <div class="stat" onclick="document.getElementById('f-st').value='overdue';render()"><div class="stat-n" style="color:var(--danger)">${ov}</div><div class="stat-l">Vencidos</div></div>
@@ -946,13 +1035,21 @@ function render(){
     <div class="stat" onclick="document.getElementById('f-sort').value='ventas';render()"><div class="stat-n" style="color:var(--success);font-size:12px">${fmtK(list.reduce((a,c)=>a+getVentasPagadas(c),0))}</div><div class="stat-l">Facturado</div></div>
   </div>`;
   if(!list.length){cont.innerHTML=stats+'<p style="color:var(--text3);padding:16px 0;text-align:center">Sin resultados.</p>';return;}
-  cont.innerHTML=stats+`<div class="cards-grid">${list.map(c=>{
+ cont.innerHTML=stats+selectionBar+`<div class="cards-grid">${list.map(c=>{
     const s=cs(c.cat);const od=c.next&&c.next<td;
     const ds=c.next?new Date(c.next+'T12:00:00').toLocaleDateString('es-AR',{day:'numeric',month:'short'}):'Sin fecha';
     const pagado=getVentasPagadas(c);const pendiente=getVentasPendientes(c);
     const stg=getStage(c.stage);
-    return `<div class="card" onclick="openClient(${c.id})">
-      <div class="card-head">
+return `<div class="card ${selectedClients.has(c.id)?'selected':''}"
+onclick="${selectionMode ? `toggleSelection(${c.id})` : `openClient(${c.id})`}">      <div class="card-head">
+
+${selectionMode ? `
+<label onclick="event.stopPropagation()">
+    <input type="checkbox"
+        ${selectedClients.has(c.id)?'checked':''}
+        onchange="toggleSelection(${c.id})">
+</label>
+` : ''}
         <div class="av" style="width:36px;height:36px;font-size:11px;background:${s.bg};color:${s.dot}">${ini(c.name)}</div>
         <div style="flex:1;min-width:0"><div class="card-name">${c.name}</div><div class="card-co">${c.company}</div></div>
         <span class="badge" style="background:${s.bg};color:${s.dot}">${CAT[c.cat].label}</span>
