@@ -106,6 +106,28 @@ button{cursor:pointer;font-family:inherit;-webkit-appearance:none}
     border-radius:12px;
 }
 .card-head{display:flex;gap:8px;align-items:flex-start;margin-bottom:8px}
+  .selection-check{
+    width:22px;
+    height:22px;
+    border-radius:50%;
+    border:2px solid var(--border2);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    transition:all .2s ease;
+    flex-shrink:0;
+}
+
+.card.selected .selection-check{
+    background:var(--accent);
+    border-color:var(--accent);
+    color:#fff;
+}
+
+.selection-check:hover{
+    transform:scale(1.08);
+}
 .av{border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0}
 .card-name{font-weight:600;font-size:13px;line-height:1.3}
 .card-co{font-size:11px;color:var(--text2);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:115px}
@@ -999,6 +1021,67 @@ function toggleSelectionMode(){
     render();
 
 }
+  async function deleteSelectedClients(){
+
+    if(selectedClients.size===0){
+        toast('No hay clientes seleccionados');
+        return;
+    }
+
+    const cantidad = selectedClients.size;
+
+    if(!confirm(`¿Eliminar ${cantidad} cliente${cantidad>1?'s':''}?\n\nEsta acción no se puede deshacer.`)){
+        return;
+    }
+
+    // Si Drive está conectado, hacemos un backup antes de borrar
+    if(driveConfig.connected && driveConfig.autoSync){
+        try{
+            await saveToDrive();
+        }catch(e){
+            console.error(e);
+        }
+    }
+
+    clients = clients.filter(c => !selectedClients.has(c.id));
+
+    selectedClients.clear();
+    selectionMode = false;
+
+    saveData();
+    updateBadges();
+
+    if(driveConfig.connected && driveConfig.autoSync){
+        try{
+            await saveToDrive();
+        }catch(e){
+            console.error(e);
+        }
+    }
+
+    render();
+
+    toast(`${cantidad} cliente${cantidad>1?'s':''} eliminado${cantidad>1?'s':''}`);
+
+}
+  function selectAllClients(){
+
+    const list = getFilt();
+
+    selectedClients.clear();
+
+    list.forEach(c => selectedClients.add(c.id));
+
+    render();
+
+}
+  function clearSelectedClients(){
+
+    selectedClients.clear();
+
+    render();
+
+}
 function render(){
   const td=todayStr(),list=getFilt(),cont=document.getElementById('content');
   const ov=list.filter(c=>c.next&&c.next<td).length,tw=list.filter(c=>c.next===td).length;
@@ -1012,19 +1095,32 @@ function render(){
             <strong>${selectedClients.size}</strong> cliente${selectedClients.size>1?'s':''} seleccionado${selectedClients.size>1?'s':''}
         </div>
 
-        <div style="display:flex;gap:8px">
+       <div style="display:flex;gap:8px">
 
-            <button class="btn btn-danger btn-sm" onclick="deleteSelectedClients();event.stopPropagation();">
-                <i class="ti ti-trash"></i>
-                Eliminar
-            </button>
+    <button class="btn btn-sm"
+            onclick="selectAllClients();event.stopPropagation();">
+        <i class="ti ti-checks"></i>
+        Todos
+    </button>
 
-            <button class="btn btn-sm" onclick="toggleSelectionMode();event.stopPropagation();">
-                Cancelar
-            </button>
+    <button class="btn btn-sm"
+            onclick="clearSelectedClients();event.stopPropagation();">
+        <i class="ti ti-square-rounded-x"></i>
+        Ninguno
+    </button>
 
-        </div>
-    </div>
+    <button class="btn btn-danger btn-sm"
+            onclick="deleteSelectedClients();event.stopPropagation();">
+        <i class="ti ti-trash"></i>
+        Eliminar
+    </button>
+
+    <button class="btn btn-sm"
+            onclick="toggleSelectionMode();event.stopPropagation();">
+        Cancelar
+    </button>
+
+</div>
     `
     : '';
   const stats=`<div class="stats">
@@ -1044,11 +1140,13 @@ return `<div class="card ${selectedClients.has(c.id)?'selected':''}"
 onclick="${selectionMode ? `toggleSelection(${c.id})` : `openClient(${c.id})`}">      <div class="card-head">
 
 ${selectionMode ? `
-<label onclick="event.stopPropagation()">
-    <input type="checkbox"
-        ${selectedClients.has(c.id)?'checked':''}
-        onchange="toggleSelection(${c.id})">
-</label>
+<div class="selection-check" onclick="event.stopPropagation();toggleSelection(${c.id})">
+
+    ${selectedClients.has(c.id)
+        ? '<i class="ti ti-check"></i>'
+        : ''}
+
+</div>
 ` : ''}
         <div class="av" style="width:36px;height:36px;font-size:11px;background:${s.bg};color:${s.dot}">${ini(c.name)}</div>
         <div style="flex:1;min-width:0"><div class="card-name">${c.name}</div><div class="card-co">${c.company}</div></div>
